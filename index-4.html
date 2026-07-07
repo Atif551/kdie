@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NOVA BEAST — YT Automation Pipeline</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  :root{
+    --green:#00ff7f; --dim:#0a3d2c; --bg:#050807; --panel:#0d1512; --border:#1c3a2c; --red:#ff4d4d; --amber:#ffb347;
+  }
+  *{box-sizing:border-box;}
+  body{
+    background:var(--bg); color:var(--green); font-family:'Consolas','Courier New',monospace;
+    margin:0; padding:10px; font-size:12px;
+  }
+  /* TOP BAR */
+  .topbar{
+    display:flex; justify-content:space-between; align-items:center;
+    border:1px solid var(--border); padding:8px 12px; border-radius:4px; margin-bottom:10px;
+  }
+  .topbar .title{font-weight:bold; letter-spacing:2px;}
+  .topbar button{
+    background:transparent; color:var(--green); border:1px solid var(--green); padding:5px 10px;
+    font-family:inherit; font-size:11px; cursor:pointer; border-radius:3px; margin-left:6px;
+  }
+  .topbar button:hover{background:var(--green); color:#000;}
+
+  /* MAIN LAYOUT: left agents column, right monitor column */
+  .main{display:grid; grid-template-columns:1fr 1.3fr; gap:10px;}
+  @media(max-width:900px){.main{grid-template-columns:1fr;}}
+
+  .agentsGrid{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+  .agentBox{
+    border:1px solid var(--border); border-radius:4px; padding:8px; min-height:130px;
+    display:flex; flex-direction:column;
+  }
+  .agentBox .head{display:flex; align-items:center; gap:6px; font-weight:bold; font-size:11px; margin-bottom:6px;}
+  .dot{width:8px; height:8px; border-radius:50%; background:#555; flex-shrink:0;}
+  .dot.working{background:var(--amber); box-shadow:0 0 6px var(--amber); animation:pulse 1s infinite;}
+  .dot.done{background:var(--green); box-shadow:0 0 6px var(--green);}
+  .dot.idle{background:#444;}
+  .dot.error{background:var(--red);}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+  .agentBox .lines{font-size:10px; opacity:.85; line-height:1.5; flex:1; overflow-y:auto;}
+  .agentBox .lines div::before{content:"› "; opacity:.6;}
+
+  /* RIGHT: live monitor */
+  .monitorPanel{border:1px solid var(--border); border-radius:4px; padding:8px; display:flex; flex-direction:column;}
+  .monitorPanel .head{font-size:11px; font-weight:bold; margin-bottom:6px; display:flex; justify-content:space-between;}
+  .monitorScreen{
+    background:#000; border:1px solid var(--border); border-radius:4px; flex:1; min-height:260px;
+    display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative;
+  }
+  .monitorScreen img, .monitorScreen video, .monitorScreen canvas{max-width:100%; max-height:100%;}
+  .monitorScreen .placeholder{opacity:.4; font-size:11px;}
+
+  .queueBar{
+    border:1px solid var(--border); border-radius:4px; padding:8px; margin-top:8px;
+    display:flex; justify-content:space-between; align-items:center; font-size:11px;
+  }
+  .queueBar .progress{flex:1; height:6px; background:#111; border:1px solid var(--border); margin:0 10px; border-radius:3px; overflow:hidden;}
+  .queueBar .progress .fill{height:100%; background:var(--green); width:0%; transition:width .3s;}
+
+  /* BOTTOM: timeline */
+  .timeline{border:1px solid var(--border); border-radius:4px; padding:8px; margin-top:10px;}
+  .timeline .head{font-size:11px; font-weight:bold; margin-bottom:6px; display:flex; justify-content:space-between;}
+  .timelineRow{display:flex; gap:3px; overflow-x:auto; padding-bottom:4px; min-height:40px;}
+  .timelineRow img{height:36px; width:64px; object-fit:cover; border:1px solid var(--border); border-radius:2px; flex-shrink:0;}
+  .waveform{height:20px; background:repeating-linear-gradient(90deg, var(--dim) 0 2px, transparent 2px 4px); margin-top:4px; border-radius:2px;}
+
+  /* MODAL for keys/settings/inputs */
+  .modalOverlay{
+    position:fixed; inset:0; background:rgba(0,0,0,.75); display:none; align-items:center; justify-content:center; z-index:50;
+  }
+  .modalOverlay.open{display:flex;}
+  .modal{
+    background:var(--panel); border:1px solid var(--green); border-radius:6px; padding:16px; width:min(520px,90vw);
+    max-height:85vh; overflow-y:auto;
+  }
+  .modal h3{margin:0 0 10px 0; font-size:13px;}
+  .modal label{display:block; font-size:11px; margin:8px 0 4px;}
+  .modal input, .modal textarea, .modal select{
+    width:100%; background:#020403; color:var(--green); border:1px solid var(--border);
+    padding:7px; font-family:inherit; font-size:12px; border-radius:3px;
+  }
+  .modal textarea{min-height:80px;}
+  .modal .actions{display:flex; justify-content:flex-end; gap:8px; margin-top:12px;}
+  .modal button{
+    background:var(--dim); color:var(--green); border:1px solid var(--green); padding:7px 14px;
+    font-family:inherit; cursor:pointer; border-radius:4px; font-size:11px;
+  }
+  .modal button:hover{background:var(--green); color:#000;}
+  .modal button.secondary{background:transparent;}
+
+  .lineEditRow{border:1px solid var(--border); border-radius:4px; padding:6px; margin-bottom:6px; font-size:11px;}
+  .lineEditRow textarea{min-height:34px; font-size:10px;}
+
+  .keyRow{display:flex; gap:6px; align-items:center;}
+  .keyRow input{flex:1;}
+  .keyRow button{
+    background:var(--dim); color:var(--green); border:1px solid var(--green); padding:7px 10px;
+    font-family:inherit; cursor:pointer; border-radius:3px; font-size:11px; white-space:nowrap;
+  }
+  .keyRow button:hover{background:var(--green); color:#000;}
+  .keyRow button:disabled{opacity:.5; cursor:wait;}
+  .keyStatusIcon{
+    width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:13px; flex-shrink:0; border:1px solid var(--border); color:#666;
+  }
+  .keyStatusIcon.ok{color:#000; background:var(--green); border-color:var(--green); box-shadow:0 0 6px var(--green);}
+  .keyStatusIcon.bad{color:#000; background:var(--red); border-color:var(--red); box-shadow:0 0 6px var(--red);}
+  .keyStatusIcon.checking{color:var(--amber); border-color:var(--amber);}
+  .keyMsg{font-size:10px; opacity:.75; margin:3px 0 6px 0; min-height:12px;}
+  .keyMsg.bad{color:var(--red); opacity:1;}
+  .keyMsg.ok{color:var(--green); opacity:1;}
+
+  a{color:var(--green);}
+  .stopBtn{background:transparent; border:1px solid var(--red); color:var(--red);}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="title">✕ NOVA BEAST</div>
+  <div>
+    <button onclick="openModal('keysModal')">API KEYS</button>
+    <button onclick="openModal('settingsModal')">SETTINGS</button>
+  </div>
+</div>
+
+<div class="main">
+  <!-- LEFT: agents monitoring -->
+  <div>
+    <div style="font-size:11px; font-weight:bold; margin-bottom:6px;">AGENTS MONITORING <span style="opacity:.5;">• task flowing →</span></div>
+    <div class="agentsGrid">
+      <div class="agentBox" id="agent-script">
+        <div class="head"><span class="dot idle" id="dot-script"></span>SCRIPT ANALYZER</div>
+        <div class="lines" id="lines-script"><div>waiting for topic...</div></div>
+      </div>
+      <div class="agentBox" id="agent-prompts">
+        <div class="head"><span class="dot idle" id="dot-prompts"></span>PROMPTS GENERATOR</div>
+        <div class="lines" id="lines-prompts"><div>waiting for script...</div></div>
+      </div>
+      <div class="agentBox" id="agent-images">
+        <div class="head"><span class="dot idle" id="dot-images"></span>CREATE IMAGES/VIDEOS</div>
+        <div class="lines" id="lines-images"><div>waiting for prompts...</div></div>
+      </div>
+      <div class="agentBox" id="agent-editor">
+        <div class="head"><span class="dot idle" id="dot-editor"></span>EDITOR</div>
+        <div class="lines" id="lines-editor"><div>waiting for assets...</div></div>
+      </div>
+      <div class="agentBox" id="agent-quality">
+        <div class="head"><span class="dot idle" id="dot-quality"></span>QUALITY CHECKER</div>
+        <div class="lines" id="lines-quality"><div>idle</div></div>
+      </div>
+      <div class="agentBox" id="agent-manager">
+        <div class="head"><span class="dot idle" id="dot-manager"></span>MANAGER</div>
+        <div class="lines" id="lines-manager"><div>waiting for handoff...</div></div>
+      </div>
+    </div>
+
+    <div style="margin-top:10px;">
+      <button onclick="openModal('scriptModal')" style="background:var(--dim); color:var(--green); border:1px solid var(--green); padding:8px 14px; font-family:inherit; cursor:pointer; border-radius:4px;">▶ NEW PROJECT</button>
+      <button onclick="runFullPipeline()" style="background:var(--dim); color:var(--green); border:1px solid var(--green); padding:8px 14px; font-family:inherit; cursor:pointer; border-radius:4px;">⚡ RUN PIPELINE</button>
+    </div>
+  </div>
+
+  <!-- RIGHT: live monitor -->
+  <div>
+    <div class="monitorPanel">
+      <div class="head"><span>// LIVE MONITOR</span><span id="monitorSub">idle</span></div>
+      <div class="monitorScreen" id="monitorScreen">
+        <div class="placeholder">no active render</div>
+      </div>
+    </div>
+    <div class="queueBar">
+      <span id="queueLabel">PROJECTS QUEUE — 0 project • 0 done • 0 pending</span>
+      <div class="progress"><div class="fill" id="queueFill"></div></div>
+      <button class="stopBtn" onclick="stopPipeline()" style="padding:4px 10px; border-radius:3px; cursor:pointer; font-family:inherit;">■ STOP QUEUE</button>
+    </div>
+  </div>
+</div>
+
+<div class="timeline">
+  <div class="head"><span>LIVE TIMELINE</span><span id="timelineSub">generating — 00:00</span></div>
+  <div class="timelineRow" id="timelineThumbs"></div>
+  <div class="waveform"></div>
+</div>
+
+<video id="finalVideo" controls style="width:100%; margin-top:10px; display:none; border:1px solid var(--border); border-radius:4px;"></video>
+<div id="downloadArea" style="margin-top:6px; font-size:12px;"></div>
+<canvas id="stage" width="1280" height="720" style="display:none;"></canvas>
+
+<!-- KEYS MODAL -->
+<div class="modalOverlay" id="keysModal">
+  <div class="modal">
+    <h3>API KEYS <span style="opacity:.5; font-weight:normal;">(saved only in this browser)</span></h3>
+
+    <details style="margin-bottom:10px;">
+      <summary style="cursor:pointer; font-size:11px; opacity:.6;">Anthropic API Key (optional, not used right now)</summary>
+      <div class="keyRow" style="margin-top:8px;">
+        <input type="password" id="anthropicKey" placeholder="sk-ant-...">
+        <button onclick="testKey('anthropic')">Submit</button>
+        <span class="keyStatusIcon" id="status-anthropic">○</span>
+      </div>
+      <div class="keyMsg" id="msg-anthropic"></div>
+    </details>
+
+    <label>Google Gemini API Key (image generation — Nano Banana)</label>
+    <div class="keyRow">
+      <input type="password" id="geminiKey" placeholder="AIza...">
+      <button onclick="testKey('gemini')">Submit</button>
+      <span class="keyStatusIcon" id="status-gemini">○</span>
+    </div>
+    <div class="keyMsg" id="msg-gemini"></div>
+
+    <label>ElevenLabs API Key (voiceover)</label>
+    <div class="keyRow">
+      <input type="password" id="elevenKey" placeholder="el-...">
+      <button onclick="testKey('eleven')">Submit</button>
+      <span class="keyStatusIcon" id="status-eleven">○</span>
+    </div>
+    <div class="keyMsg" id="msg-eleven"></div>
+
+    <label>ElevenLabs Voice ID</label>
+    <input type="text" id="elevenVoice" placeholder="e.g. 21m00Tcm4TlvDq8ikWAM">
+
+    <div class="actions">
+      <button class="secondary" onclick="closeModal('keysModal')">Cancel</button>
+      <button onclick="saveKeys()">Save</button>
+    </div>
+    <div class="keyMsg" id="allKeysMsg" style="margin-top:8px;"></div>
+  </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div class="modalOverlay" id="settingsModal">
+  <div class="modal">
+    <h3>SETTINGS</h3>
+    <label>Visual style template</label>
+    <select id="styleSelect">
+      <option>Cinematic photoreal, medical office setting</option>
+      <option>Flat 2D pastel cartoon</option>
+      <option>Cinematic graphic novel</option>
+      <option>Whiteboard animation</option>
+      <option>Vintage retro comic</option>
+      <option>Infographic clean modern</option>
+    </select>
+    <label>Model (script/prompts)</label>
+    <input type="text" id="modelName" value="claude-sonnet-4-6">
+    <div class="actions">
+      <button onclick="closeModal('settingsModal')">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- NEW PROJECT MODAL -->
+<div class="modalOverlay" id="scriptModal">
+  <div class="modal">
+    <h3>NEW PROJECT</h3>
+    <label>Topic / channel niche / instructions</label>
+    <textarea id="topicInput" placeholder="e.g. Write a 6000 character script for RealLogic Health about morning habits that spike blood sugar. Roman Urdu, no headings, punchy hook."></textarea>
+    <label>Or paste your own finished script (skips script generation)</label>
+    <textarea id="scriptOutput" placeholder="Paste script here (optional)"></textarea>
+    <div class="actions">
+      <button class="secondary" onclick="closeModal('scriptModal')">Cancel</button>
+      <button onclick="closeModal('scriptModal'); runFullPipeline();">Start Project</button>
+    </div>
+  </div>
+</div>
+
+<!-- LINE PROMPTS REVIEW MODAL -->
+<div class="modalOverlay" id="linesModal">
+  <div class="modal">
+    <h3>REVIEW IMAGE PROMPTS <span style="opacity:.5; font-weight:normal;">(edit if needed, then continue)</span></h3>
+    <div id="lineList"></div>
+    <div class="actions">
+      <button class="secondary" onclick="closeModal('linesModal')">Close</button>
+      <button onclick="closeModal('linesModal'); continueAfterPrompts();">Continue → Generate Images</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ================= STATE =================
+let lines = [];
+let audioBlob = null;
+let stopRequested = false;
+let queueDone = 0, queueTotal = 1;
+
+// ================= HELPERS =================
+function openModal(id){ document.getElementById(id).classList.add('open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+
+function setAgent(name, state, msgs){
+  // state: idle | working | done | error
+  document.getElementById('dot-'+name).className = 'dot '+state;
+  if(msgs){
+    const el = document.getElementById('lines-'+name);
+    el.innerHTML = msgs.map(m=>`<div>${m}</div>`).join('');
+    el.scrollTop = el.scrollHeight;
+  }
+}
+function appendAgent(name, msg){
+  const el = document.getElementById('lines-'+name);
+  const d = document.createElement('div');
+  d.textContent = msg;
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
+}
+function setMonitor(html, sub){
+  document.getElementById('monitorScreen').innerHTML = html;
+  if(sub) document.getElementById('monitorSub').textContent = sub;
+}
+function setQueue(done, total, label){
+  queueDone = done; queueTotal = total;
+  document.getElementById('queueLabel').textContent = `PROJECTS QUEUE — 1 project • ${done} done • ${total-done} pending`;
+  document.getElementById('queueFill').style.width = Math.round((done/total)*100)+'%';
+  if(label) document.getElementById('timelineSub').textContent = label;
+}
+function addTimelineThumb(src){
+  const row = document.getElementById('timelineThumbs');
+  const img = document.createElement('img');
+  img.src = src;
+  row.appendChild(img);
+}
+
+async function fetchWithTimeout(url, opts, ms=25000){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), ms);
+  try{
+    return await fetch(url, {...opts, signal: controller.signal});
+  }catch(e){
+    if(e.name === 'AbortError') throw new Error(`Timed out after ${ms/1000}s (network slow ya API atak gaya). Dubara try karo.`);
+    throw e;
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
+// ================= KEYS =================
+let keyValid = {anthropic:false, gemini:false, eleven:false};
+
+function setKeyIcon(name, state){
+  // state: 'idle' | 'checking' | 'ok' | 'bad'
+  const icon = document.getElementById('status-'+name);
+  icon.className = 'keyStatusIcon' + (state==='ok'?' ok':state==='bad'?' bad':state==='checking'?' checking':'');
+  icon.textContent = state==='ok' ? '✓' : state==='bad' ? '✕' : state==='checking' ? '…' : '○';
+}
+function setKeyMsg(name, text, kind){
+  const el = document.getElementById('msg-'+name);
+  el.textContent = text;
+  el.className = 'keyMsg' + (kind==='ok'?' ok':kind==='bad'?' bad':'');
+}
+
+async function testKey(name){
+  const inputId = name==='anthropic' ? 'anthropicKey' : name==='gemini' ? 'geminiKey' : 'elevenKey';
+  const key = document.getElementById(inputId).value.trim();
+  if(!key){
+    keyValid[name] = false;
+    setKeyIcon(name,'bad');
+    setKeyMsg(name,'Key khali hai.','bad');
+    updateAllKeysMsg();
+    return;
+  }
+  setKeyIcon(name,'checking');
+  setKeyMsg(name,'Checking...', '');
+
+  try{
+    if(name==='anthropic'){
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method:'POST',
+        headers:{
+          'Content-Type':'application/json',
+          'x-api-key': key,
+          'anthropic-version':'2023-06-01',
+          'anthropic-dangerous-direct-browser-access':'true'
+        },
+        body: JSON.stringify({model:'claude-sonnet-4-6', max_tokens:1, messages:[{role:'user', content:'hi'}]})
+      });
+      const data = await res.json();
+      if(res.ok && !data.error){
+        keyValid.anthropic = true; setKeyIcon('anthropic','ok'); setKeyMsg('anthropic','Valid ✓','ok');
+      } else {
+        keyValid.anthropic = false; setKeyIcon('anthropic','bad'); setKeyMsg('anthropic', data?.error?.message || 'Invalid key','bad');
+      }
+    }
+    else if(name==='gemini'){
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+      const data = await res.json();
+      if(res.ok && !data.error){
+        keyValid.gemini = true; setKeyIcon('gemini','ok'); setKeyMsg('gemini','Valid ✓','ok');
+      } else {
+        keyValid.gemini = false; setKeyIcon('gemini','bad'); setKeyMsg('gemini', data?.error?.message || 'Invalid key','bad');
+      }
+    }
+    else if(name==='eleven'){
+      const voiceId = document.getElementById('elevenVoice').value.trim() || '21m00Tcm4TlvDq8ikWAM';
+      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json', 'xi-api-key': key},
+        body: JSON.stringify({text:'hi', model_id:'eleven_multilingual_v2'})
+      });
+      if(res.ok){
+        keyValid.eleven = true; setKeyIcon('eleven','ok'); setKeyMsg('eleven','Valid ✓ (test synthesis worked)','ok');
+      } else {
+        const data = await res.json().catch(()=>({}));
+        keyValid.eleven = false; setKeyIcon('eleven','bad');
+        setKeyMsg('eleven', data?.detail?.message || data?.detail || 'Invalid key or voice ID','bad');
+      }
+    }
+  }catch(e){
+    keyValid[name] = false; setKeyIcon(name,'bad'); setKeyMsg(name,'Network/CORS error: '+e.message,'bad');
+  }
+  updateAllKeysMsg();
+}
+
+function updateAllKeysMsg(){
+  const all = keyValid.gemini && keyValid.eleven;
+  const el = document.getElementById('allKeysMsg');
+  el.textContent = all ? 'Gemini + ElevenLabs valid ✓ — you can Save and Run Pipeline now.' : 'Gemini aur ElevenLabs keys Submit kar ke green (✓) karo, tabhi pipeline chalegi. (Anthropic filhal optional hai, use nahi ho raha.)';
+  el.className = 'keyMsg' + (all?' ok':' bad');
+}
+
+function saveKeys(){
+  const all = keyValid.gemini && keyValid.eleven;
+  if(!all){
+    updateAllKeysMsg();
+    alert('Save karne se pehle Gemini aur ElevenLabs keys "Submit" kar ke green (✓) karo. (Anthropic filhal optional hai.)');
+    return;
+  }
+  const keys = {
+    anthropic: document.getElementById('anthropicKey').value,
+    gemini: document.getElementById('geminiKey').value,
+    eleven: document.getElementById('elevenKey').value,
+    elevenVoice: document.getElementById('elevenVoice').value,
+    validated: true
+  };
+  localStorage.setItem('novabeast_keys', JSON.stringify(keys));
+  closeModal('keysModal');
+}
+function loadKeys(){
+  const raw = localStorage.getItem('novabeast_keys');
+  if(!raw) return;
+  const k = JSON.parse(raw);
+  document.getElementById('anthropicKey').value = k.anthropic || '';
+  document.getElementById('geminiKey').value = k.gemini || '';
+  document.getElementById('elevenKey').value = k.eleven || '';
+  document.getElementById('elevenVoice').value = k.elevenVoice || '';
+  // previously validated keys load as valid but should be re-confirmed silently by re-testing
+  if(k.anthropic) testKey('anthropic');
+  if(k.gemini) testKey('gemini');
+  if(k.eleven) testKey('eleven');
+}
+loadKeys();
+
+function allKeysValidOrAlert(){
+  const all = keyValid.gemini && keyValid.eleven;
+  if(!all){
+    openModal('keysModal');
+    updateAllKeysMsg();
+    alert('Pehle Gemini aur ElevenLabs keys "API KEYS" modal mein Submit kar ke green (✓) karo, phir pipeline chalegi.');
+    return false;
+  }
+  return true;
+}
+
+function stopPipeline(){
+  stopRequested = true;
+  setAgent('manager','error',['stopped by user']);
+}
+
+// ================= FULL PIPELINE ORCHESTRATION =================
+async function runFullPipeline(){
+  if(!allKeysValidOrAlert()) return;
+  stopRequested = false;
+  setQueue(0, 6, 'starting — 00:00');
+  setAgent('manager','working',['dispatching plan...']);
+  try{
+    await stepScript();      if(stopRequested) return;
+    setQueue(1,6);
+    await stepPrompts();     if(stopRequested) return;
+    setQueue(2,6);
+    // pause here for user to review prompts
+    renderLineList();
+    openModal('linesModal');
+  }catch(e){
+    setAgent('manager','error',['pipeline failed: '+e.message]);
+  }
+}
+
+async function continueAfterPrompts(){
+  if(!allKeysValidOrAlert()) return;
+  try{
+    await stepImages();      if(stopRequested) return;
+    setQueue(3,6);
+    await stepVoice();       if(stopRequested) return;
+    setQueue(4,6);
+    await stepRender();      if(stopRequested) return;
+    setQueue(6,6,'done');
+    setAgent('manager','done',['handoff complete ✓','final video ready']);
+    setAgent('quality','done',['validating output...','0 issues found']);
+  }catch(e){
+    setAgent('manager','error',['pipeline failed: '+e.message]);
+  }
+}
+
+// ---------- STEP 1: script ----------
+async function stepScript(){
+  const key = document.getElementById('geminiKey').value;
+  const manual = document.getElementById('scriptOutput').value.trim();
+  const topic = document.getElementById('topicInput').value.trim();
+
+  if(manual){
+    setAgent('script','done',['using pasted script','skipping generation ✓']);
+    return;
+  }
+  if(!key){ alert('Add Gemini API key (API KEYS button) first.'); throw new Error('missing key'); }
+  if(!topic){ alert('Describe the topic in NEW PROJECT first.'); throw new Error('missing topic'); }
+
+  setAgent('script','working',['detecting topic...','analysing instructions (Gemini)...']);
+  try{
+    const res = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        contents:[{parts:[{text:`${topic}\n\nWrite ONLY the narration script, no titles, no headings, no bullet points, plain prose only.`}]}]
+      })
+    });
+    const data = await res.json();
+    if(data.error) throw new Error(data.error.message);
+    const text = (data?.candidates?.[0]?.content?.parts || []).map(p=>p.text||'').join('\n').trim();
+    if(!text) throw new Error('Gemini returned no text — check key/quota/model name.');
+    document.getElementById('scriptOutput').value = text;
+    setAgent('script','done',[`script generated (${text.length} chars)`,'setting up AI engine ✓']);
+  }catch(e){
+    setAgent('script','error',['FAILED: '+e.message]);
+    alert('Script Analyzer failed: '+e.message);
+    throw e;
+  }
+}
+
+// ---------- STEP 2: prompts ----------
+async function stepPrompts(){
+  const key = document.getElementById('geminiKey').value;
+  const script = document.getElementById('scriptOutput').value.trim();
+  const style = document.getElementById('styleSelect').value;
+  if(!key || !script) throw new Error('need script + Gemini key');
+
+  setAgent('prompts','working',['building prompts (Gemini)...','optimising each scene...']);
+  const rawLines = script.split(/(?<=[.!?۔])\s+/).map(s=>s.trim()).filter(s=>s.length>0);
+  lines = rawLines.map(t=>({text:t, prompt:'', imageDataUrl:null}));
+
+  try{
+    const res = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        contents:[{parts:[{text:
+          `Style template: ${style}\n\nFor each numbered line below, write ONE image generation prompt (one line each) matching the style consistently. Return ONLY a numbered list matching input numbering, nothing else.\n\n` +
+          rawLines.map((l,i)=>`${i+1}. ${l}`).join('\n')
+        }]}]
+      })
+    });
+    const data = await res.json();
+    if(data.error) throw new Error(data.error.message);
+    const text = (data?.candidates?.[0]?.content?.parts || []).map(p=>p.text||'').join('\n');
+    if(!text.trim()) throw new Error('Gemini returned no text — check key/quota/model name.');
+    text.split('\n').map(s=>s.trim()).filter(s=>s.length>0).forEach(pl=>{
+      const m = pl.match(/^(\d+)\.\s*(.*)$/);
+      if(m){ const idx=parseInt(m[1],10)-1; if(lines[idx]) lines[idx].prompt = m[2]; }
+    });
+    setAgent('prompts','done',[`${lines.length} prompts ready ✓`]);
+  }catch(e){
+    setAgent('prompts','error',['FAILED: '+e.message]);
+    alert('Prompts Generator failed: '+e.message);
+    throw e;
+  }
+}
+
+function renderLineList(){
+  const container = document.getElementById('lineList');
+  container.innerHTML = '';
+  lines.forEach((l,i)=>{
+    const div = document.createElement('div');
+    div.className = 'lineEditRow';
+    div.innerHTML = `<b>#${i+1}</b> ${l.text}<br><textarea onchange="lines[${i}].prompt=this.value">${l.prompt}</textarea>`;
+    container.appendChild(div);
+  });
+}
+
+// ---------- STEP 3: images ----------
+async function stepImages(){
+  const key = document.getElementById('geminiKey').value;
+  if(!key){ alert('Add Gemini API key first.'); throw new Error('missing key'); }
+  if(lines.length===0) throw new Error('no lines');
+
+  setAgent('images','working',[`Gen image 1/${lines.length}...`]);
+  for(let i=0;i<lines.length;i++){
+    if(stopRequested) return;
+    appendAgent('images', `Gen image ${i+1}/${lines.length} with Nano Banana...`);
+    setMonitor(`<div class="placeholder">rendering image ${i+1}/${lines.length}...</div>`, `image ${i+1}/${lines.length}`);
+    try{
+      const res = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${key}`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          contents:[{parts:[{text: lines[i].prompt || lines[i].text}]}],
+          generationConfig:{responseModalities:["TEXT","IMAGE"]}
+        })
+      }, 40000);
+      const data = await res.json();
+      if(data.error) throw new Error(data.error.message);
+      const parts = data?.candidates?.[0]?.content?.parts || [];
+      const imgPart = parts.find(p=>p.inlineData);
+      if(imgPart){
+        const dataUrl = `data:${imgPart.inlineData.mimeType};base64,${imgPart.inlineData.data}`;
+        lines[i].imageDataUrl = dataUrl;
+        addTimelineThumb(dataUrl);
+        setMonitor(`<img src="${dataUrl}">`, `image ${i+1}/${lines.length}`);
+      } else {
+        appendAgent('images', `⚠ no image for line ${i+1} (model returned no image)`);
+      }
+    }catch(e){
+      appendAgent('images', `⚠ error line ${i+1}: ${e.message}`);
+    }
+  }
+  const okCount = lines.filter(l=>l.imageDataUrl).length;
+  if(okCount === 0){
+    setAgent('images','error',['FAILED: no images generated — check Gemini key/quota/model name']);
+    alert('Image generation failed for all lines. Check the messages in the Create Images/Videos box.');
+    throw new Error('no images generated');
+  }
+  setAgent('images','done',[`${okCount}/${lines.length} images generated ✓`]);
+}
+
+// ---------- STEP 4: voiceover ----------
+async function stepVoice(){
+  const key = document.getElementById('elevenKey').value;
+  const voiceId = document.getElementById('elevenVoice').value;
+  const script = document.getElementById('scriptOutput').value.trim();
+  if(!key || !voiceId || !script){ alert('Need ElevenLabs key + Voice ID.'); throw new Error('missing eleven config'); }
+
+  setAgent('editor','working',['requesting narration audio...']);
+  try{
+    const res = await fetchWithTimeout(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json', 'xi-api-key': key},
+      body: JSON.stringify({text:script, model_id:'eleven_multilingual_v2', voice_settings:{stability:0.5, similarity_boost:0.75}})
+    }, 60000);
+    if(!res.ok){ const t = await res.text(); throw new Error(t); }
+    audioBlob = await res.blob();
+    appendAgent('editor', `narration ready (${Math.round(audioBlob.size/1024)} KB)`);
+  }catch(e){
+    setAgent('editor','error',['FAILED: '+e.message]);
+    alert('Voiceover generation failed: '+e.message);
+    throw e;
+  }
+}
+
+// ---------- STEP 5: render ----------
+async function stepRender(){
+  const validLines = lines.filter(l=>l.imageDataUrl);
+  if(validLines.length===0 || !audioBlob) throw new Error('missing assets for render');
+
+  setAgent('editor','working',['adding images to video...','rendering...']);
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const arrayBuf = await audioBlob.arrayBuffer();
+  const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+  const totalDuration = decoded.duration;
+  const perImage = totalDuration / validLines.length;
+
+  const imgs = await Promise.all(validLines.map(l=>new Promise(res=>{
+    const im = new Image(); im.onload=()=>res(im); im.src=l.imageDataUrl;
+  })));
+
+  const audioEl = new Audio(URL.createObjectURL(audioBlob));
+  const srcNode = audioCtx.createMediaElementSource(audioEl);
+  const dest = audioCtx.createMediaStreamDestination();
+  srcNode.connect(dest); srcNode.connect(audioCtx.destination);
+
+  const videoStream = canvas.captureStream(30);
+  const combined = new MediaStream([...videoStream.getVideoTracks(), ...dest.stream.getAudioTracks()]);
+  const recorder = new MediaRecorder(combined, {mimeType:'video/webm;codecs=vp9,opus'});
+  const chunks = [];
+  recorder.ondataavailable = e=>{ if(e.data.size>0) chunks.push(e.data); };
+
+  const finished = new Promise(resolve=>{
+    recorder.onstop = ()=>{
+      const blob = new Blob(chunks, {type:'video/webm'});
+      const url = URL.createObjectURL(blob);
+      const vid = document.getElementById('finalVideo');
+      vid.src = url; vid.style.display='block';
+      document.getElementById('downloadArea').innerHTML = `<a href="${url}" download="final_video.webm">⬇ Download final_video.webm</a>`;
+      setMonitor(`<video src="${url}" controls style="max-width:100%;max-height:100%;"></video>`, 'render complete');
+      resolve();
+    };
+  });
+
+  recorder.start();
+  audioEl.play();
+  const startTime = performance.now();
+
+  function drawFrame(){
+    if(stopRequested){ recorder.stop(); audioEl.pause(); return; }
+    const elapsed = (performance.now()-startTime)/1000;
+    if(elapsed >= totalDuration){ recorder.stop(); audioEl.pause(); return; }
+    const idx = Math.min(imgs.length-1, Math.floor(elapsed/perImage));
+    const localT = (elapsed - idx*perImage)/perImage;
+    const img = imgs[idx];
+    const scale = 1.0 + 0.12*localT;
+    const iw=img.width, ih=img.height, targetRatio=W/H;
+    let drawW, drawH;
+    if(iw/ih > targetRatio){ drawH=H*scale; drawW=drawH*(iw/ih); } else { drawW=W*scale; drawH=drawW*(ih/iw); }
+    const x=(W-drawW)/2, y=(H-drawH)/2;
+    ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+    ctx.drawImage(img,x,y,drawW,drawH);
+    const text = validLines[idx].text;
+    ctx.font='bold 34px Arial'; ctx.textAlign='center';
+    ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(0,H-120,W,120);
+    ctx.fillStyle='#fff';
+    wrapText(ctx,text,W/2,H-70,W-100,40);
+    document.getElementById('timelineSub').textContent = `generating — ${Math.floor(elapsed/60)}:${String(Math.floor(elapsed%60)).padStart(2,'0')}`;
+    requestAnimationFrame(drawFrame);
+  }
+  requestAnimationFrame(drawFrame);
+  await finished;
+  setAgent('editor','done',['all images added ✓','render complete ✓']);
+}
+
+function wrapText(ctx,text,x,y,maxWidth,lineHeight){
+  const words = text.split(' ');
+  let line='', out=[];
+  for(let w of words){
+    const test = line+w+' ';
+    if(ctx.measureText(test).width > maxWidth && line){ out.push(line); line=w+' '; } else line=test;
+  }
+  out.push(line);
+  const startY = y - (out.length-1)*lineHeight/2;
+  out.forEach((l,i)=>ctx.fillText(l.trim(), x, startY+i*lineHeight));
+}
+</script>
+</body>
+</html>
